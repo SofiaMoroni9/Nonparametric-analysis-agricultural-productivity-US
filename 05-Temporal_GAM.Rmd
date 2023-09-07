@@ -1,0 +1,574 @@
+---
+title: "Nonparametric Project of Agricultural Productivity in the U.S."
+subtitle: "Temporal GAM"
+author:
+    - "Sofia Moroni^[sofia.moroni@mail.polimi.it]"
+output:
+    pdf_document:
+        toc: true
+        toc_depth: 3
+        number_section: true
+        #keep_md: TRUE
+    html_document:
+        toc: true
+        toc_float: true
+        number_sections: true
+date: "2023-06-27"
+editor_options:
+    chunk_output_type: inline
+---
+
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    dev = c('pdf'),
+    fig.align = 'center',
+    fig.path = 'output/',
+    fig.height = 3,
+    fig.width = 6
+)
+```
+
+# Load libraries and data
+
+```{r ,message=FALSE}
+library(pbapply)
+library(mgcv)
+library(conformalInference)
+library(ggplot2)
+library(progress)
+library(parallel)
+```
+
+```{r echo = T, results = 'hide'}
+data_path = file.path('data')
+output_path = file.path('results')
+data =
+    read.table(
+        file.path(data_path, 'agricultural_indices.csv'),
+        header = T,
+        sep = ';'
+    )
+
+# Sostituzione delle virgole con punti
+data<- data.frame(lapply(data, function(x) gsub(",", ".", x)))
+data <- as.data.frame(lapply(data, as.numeric))
+
+data_test = data[69:72,]
+
+set.seed(100)
+B = 1000
+
+```
+
+Create the lag variable
+```{r}
+lag1 <-data$Total.agricultural.output[1:71]
+
+dataset = data[2:72,]
+dataset$lag1 =lag1
+n = nrow(dataset)
+```
+```{r}
+dataset = dataset[1:68,]
+
+model_gam = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+    + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + lag1,
+    data =dataset
+   )
+summary(model_gam)
+plot(model_gam)
+
+```
+
+# $H_0$: `Feed and Seed` $= 0$ VS $H_1$: `Feed and Seed` $\neq 0$
+
+```{r}
+T0 = abs(summary(model_gam)$p.table[5, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+    + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[5, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+
+# $H_0$: `Pesticides` $= 0$ VS $H_1$: `Pesticides` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+T0 = abs(summary(model_gam)$p.table[6, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[6, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+# $H_0$: `Fertilizer and lime` $= 0$ VS $H_1$: `Fertilizer and lime` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+T0 = abs(summary(model_gam)$p.table[6, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    #+ Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+# + Intermediate.Pesticides.Input
+#    + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[6, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+
+
+# $H_0$: `Purchased Services` $= 0$ VS $H_1$: `Purchased Services` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+   # + Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+T0 = abs(summary(model_gam)$p.table[6, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+  #  + Intermediate.Pesticides.Input
+    #+ Intermediate.Fertilizer.and.lime.Input
+  #  + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    #+ Intermediate.Fertilizer.and.lime.Input
+    + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[6, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+# $H_0$: `Land` $= 0$ VS $H_1$: `Land` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+  #  + Intermediate.Pesticides.Input
+  #  + Intermediate.Fertilizer.and.lime.Input
+   # + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+T0 = abs(summary(model_gam)$p.table[3, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+   # + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    #+ Intermediate.Fertilizer.and.lime.Input
+   # + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+    + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+   # + Intermediate.Fertilizer.and.lime.Input
+    #+ Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[3, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+# $H_0$: `Energy` $= 0$ VS $H_1$: `Energy` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+   # + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+  #  + Intermediate.Pesticides.Input
+  #  + Intermediate.Fertilizer.and.lime.Input
+   # + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+T0 = abs(summary(model_gam)$p.table[4, 3])
+gam.H0 = gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+   # + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+   # + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+    #+ Intermediate.Fertilizer.and.lime.Input
+   # + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    
+res.H0 = gam.H0$residuals
+
+wrapper = function() {
+    permutation = sample(n)
+    res.H0.perm = res.H0[permutation]
+    Y.perm.H0 = gam.H0$fitted + res.H0.perm
+    gam.perm = gam(
+        Y.perm.H0 ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+   # + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+    + Intermediate.Energy.Input
+   # + Intermediate.Pesticides.Input
+   # + Intermediate.Fertilizer.and.lime.Input
+    #+ Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+    return(abs(summary(gam.perm)$p.table[4, 3]))
+}
+T_H0 = pbreplicate(B, wrapper(), simplify = 'vector')
+```
+```{r}
+hist(sort(T_H0)[-1000],
+     breaks = 100,
+     main = 'Permutational distribution of test statistics',
+     xlab = '')
+abline(v = T0, col = 'red', lwd = 4)
+
+plot(ecdf(sort(T_H0)[-1000]), main = 'ECDF of test statistics')
+abline(v = T0, col = 'red', lwd = 4)
+P = sum(T_H0 >= T0) / B
+P
+```
+# $H_0$: `Land` $= 0$ VS $H_1$: `Land` $\neq 0$
+
+```{r}
+model_gam= gam(
+    Total.agricultural.output ~ s(Capital.Durable.equipment.Input, bs = 'cr')
+    + Capital.Service.buildings.Input
+  #  + Capital.Land.Input
+    + s(Capital.Inventories.Input,bs = 'cr')
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + Intermediate.Feed.and.seed.Input
+  #  + Intermediate.Energy.Input
+  #  + Intermediate.Pesticides.Input
+  #  + Intermediate.Fertilizer.and.lime.Input
+   # + Intermediate.Purchased.services.Input
+    + s(lag1,bs='cr'),
+    data =dataset
+   )
+
+summary(model_gam)
+
+plot(model_gam)
+
+
+plot(model_gam$residuals)
+hist(model_gam$residuals)
+
+```
+
+
+

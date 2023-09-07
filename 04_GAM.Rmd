@@ -1,0 +1,309 @@
+---
+title: "Nonparametric Project of Agricultural Productivity in the U.S."
+subtitle: "GAM"
+author:
+    - "Sofia Moroni^[sofia.moroni@mail.polimi.it]"
+output:
+    pdf_document:
+        toc: true
+        toc_depth: 3
+        number_section: true
+        #keep_md: TRUE
+    html_document:
+        toc: true
+        toc_float: true
+        number_sections: true
+date: "2023-06-27"
+editor_options:
+    chunk_output_type: inline
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    dev = c('pdf'),
+    fig.align = 'center',
+    fig.path = 'output/',
+    fig.height = 3,
+    fig.width = 6
+)
+```
+
+# Load libraries and data
+
+```{r ,message=FALSE}
+library(pbapply)
+library(mgcv)
+library(conformalInference)
+library(ggplot2)
+library(progress)
+library(parallel)
+```
+
+```{r echo = T, results = 'hide'}
+data_path = file.path('data')
+output_path = file.path('results')
+data =
+    read.table(
+        file.path(data_path, 'agricultural_indices.csv'),
+        header = T,
+        sep = ';'
+    )
+
+# Sostituzione delle virgole con punti
+data<- data.frame(lapply(data, function(x) gsub(",", ".", x)))
+data <- as.data.frame(lapply(data, as.numeric))
+
+data_test = data[69:72,]
+
+set.seed(100)
+B = 1000
+n = nrow(data)
+```
+
+# MODEL
+
+```{r}
+data = data[1:68,]
+
+model_gam = gam(Total.agricultural.output ~s(Capital.Durable.equipment.Input, bs = 'cr')          
+    + Capital.Service.buildings.Input
+    + Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+    + s(Capital.Inventories.Input)
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input,
+    data = data
+   )
+
+summary(model_gam)
+plot(model_gam)
+
+```
+
+# MODEL WITH INTERACTION
+```{r}
+period = as.numeric(68)
+period[1:47]= 'first'
+period[48:68]= 'second'
+
+data$period = as.factor(period)
+
+model_gam = gam(Total.agricultural.output ~s(Capital.Durable.equipment.Input, bs = 'cr')          
+    + period:Capital.Service.buildings.Input
+    + period:Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + s(Capital.Inventories.Input)
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input,
+    data = data
+   )
+```
+
+
+```{r}
+summary(model_gam)
+
+plot(model_gam)
+
+
+plot(model_gam$residuals)
+shapiro.test(model_gam$residuals)
+```
+
+
+
+
+
+PREDICTION
+
+```{r}
+durable_equipment.grid=seq(range(data$Capital.Durable.equipment.Input)[1],
+                      range(data$Capital.Durable.equipment.Input)[2],length.out = 100)
+#inventories.grid=seq(range(data$Capital.Inventories.Input)[1],
+#                      range(data$Capital.Inventories.Input)[2],length.out = 10)
+hired_labor.grid=seq(range(data$LaborHired.labor.Input)[1],
+                      range(data$LaborHired.labor.Input)[2],length.out = 100)
+grid = expand.grid(
+    Capital.Durable.equipment.Input = durable_equipment.grid,
+   # Capital.Inventories.Input = inventories.grid,
+    LaborHired.labor.Input = hired_labor.grid,
+    Capital.Service.buildings.Input = mean(data$Capital.Service.buildings.Input),
+    Intermediate.Pesticides.Input = mean(data$Intermediate.Pesticides.Input),
+    Intermediate.Energy.Input = mean(data$Intermediate.Energy.Input),
+   Labor.Self.employed.and.unpaid.family.Input = mean(data$Labor.Self.employed.and.unpaid.family.Input),
+   period = 'second'
+)
+pred_gam = predict(model_gam, newdata = grid)
+```
+
+# Coefficients 
+
+```{r}
+tab = summary(model_gam)
+format(as.data.frame(tab$p.coeff), scientific = FALSE)
+as.data.frame(tab$s.table)
+```
+
+# Prediction
+
+```{r gam-smooth-terms-surface}
+
+##da migliorare
+plot3D::persp3D(
+  x=durable_equipment.grid,
+  y=hired_labor.grid,
+  z=matrix(pred_gam, nrow=length(durable_equipment.grid), ncol=length(hired_labor.grid)),
+  col.palette = heat.colors,
+  
+  xlab = 'durable_equipment',
+  ylab = 'hired_labor',
+  zlab = 'total_output',
+  box = TRUE,
+  #contour = TRUE,
+  border='black',
+  lwd=0.1,
+  shade=0.1,
+  bty="b2", # https://rdrr.io/cran/plot3D/man/perspbox.html
+  phi = 20, theta = 50
+)
+
+with(
+  data,
+  plot3D::points3D(Capital.Durable.equipment.Input,
+    LaborHired.labor.Input,
+    Total.agricultural.output,
+    col = 'black',
+    size = 1,
+    pch=16,
+    add=TRUE
+ )
+)
+```
+
+# Bootstrap interval on response
+
+
+
+```{r}
+period2 = as.numeric(4)
+period2= 'second'
+
+data_test$period = as.factor(period2)
+
+data$period = as.factor(period)
+service_buildings = data_test$Capital.Service.buildings.Input
+pesticides = data_test$Intermediate.Pesticides.Input
+durable_equipment = data_test$Capital.Durable.equipment.Input
+hired_labor = data_test$LaborHired.labor.Input
+self_employed= data_test$Labor.Self.employed.and.unpaid.family.Input
+energy = data_test$Intermediate.Energy.Input
+period2 = data_test$period
+
+```
+
+```{r,echo=FALSE}
+diagnostic_bootstrap = function(distro, obs){
+  print(paste("Standard deviation: ", sd(distro)))
+  print(paste("Bias: ", mean(distro) - obs))
+  # computing confidence interval
+  alpha <- 0.1
+  right.quantile <- quantile(distro, 1 - alpha/2)
+  left.quantile <- quantile(distro, alpha/2)
+  # reverse-percentile
+  CI <- c(obs - (right.quantile - obs),
+          obs,
+          obs - (left.quantile - obs))
+  names(CI) <- c("lwr", "lvl", "upr")
+  print(CI)
+  plot(ecdf(distro), main='Parameter bootstrap distribution')
+  abline(v = CI[2], lty=2)
+  abline(v = CI[c(1,3)], lty=3)
+  return(CI)
+}
+
+```
+
+```{r}
+CI <- matrix(0,4,3)
+
+
+set.seed(1)
+for(i in 1:4){
+  newdata <-data.frame(Capital.Service.buildings.Input=service_buildings[i],
+                       Intermediate.Pesticides.Input=pesticides[i],
+                       Capital.Durable.equipment.Input=durable_equipment[i],
+                       LaborHired.labor.Input=hired_labor[i],
+                       Intermediate.Energy.Input  =energy[i],
+                       Labor.Self.employed.and.unpaid.family.Input= self_employed[i],
+                       period = period2[i]
+                       )
+  B = 200
+  fitted.obs <- predict(model_gam)
+  res.obs <- data$Total.agricultural.output - fitted.obs
+  pred.obs = predict(model_gam, newdata = newdata)
+  T.boot <- numeric(B)
+  library(progress)
+  pb <- progress_bar$new(
+    format = "  processing [:bar] :percent eta: :eta",
+    total = B, clear = FALSE)
+  for (b in 1:B) {
+    
+    perm <- sample(1:nrow(data), replace = T)
+    dataset.boot = data[perm,]
+    
+    model_gam_reduced.boot = 
+      mgcv::gam(Total.agricultural.output ~s(Capital.Durable.equipment.Input, bs = 'cr')          
+    + period:Capital.Service.buildings.Input
+    + period:Labor.Self.employed.and.unpaid.family.Input
+    + s(LaborHired.labor.Input, bs = 'cr')
+   # + s(Capital.Inventories.Input)
+    + Intermediate.Energy.Input
+    + Intermediate.Pesticides.Input,
+    data = dataset.boot
+   )
+    
+    T.boot[b] <- predict(model_gam_reduced.boot, newdata = newdata)
+    pb$tick()
+  }
+  inter <- diagnostic_bootstrap(distro = T.boot, obs = pred.obs)
+  CI[i,] <- inter
+} 
+```
+
+and we compare them:
+
+```{r,echo=FALSE}
+jf=0.8
+set.seed(1)
+hist(data$Total.agricultural.output,breaks=10,xlab='Total Output',main = 'Prediction of agricultural Outuput')#,border=NA)
+abline(v=jitter(CI[1,],jf),col=c('darkgray','black','darkgray'),lwd=c(2,3,2))
+abline(v=CI[2,],col=c(2,'red',2),lwd=c(2,3,2))
+abline(v=CI[3,],col=c('lightblue','blue','lightblue'),lwd=c(2,3,2))
+abline(v=CI[4,],col=c('lightgreen','green','lightgreen'),lwd=c(2,3,2))
+```
+
+```{r}
+L = c(0.9385257, 0.9616798, 0.9555540, 0.8715392 )
+U = c(1.0463802, 1.0435294 , 1.0476331 ,1.0296020  )
+y = c(0.9863989, 1.0005593, 0.9998518, 0.9304462  )
+x=c("2016","2017","2018", "2019")
+df = data.frame(x=x, y =y)
+
+ggplot(df, aes(x = x, y = y)) +
+    geom_errorbar(aes(ymax = U, ymin = L), width = 0.3) +
+    geom_point(size = 4, col = "darkorange") +
+    coord_flip() +
+    labs(x = "Years",
+         y = "Agricultural Output",
+         title = "Prediction intervals") 
+
+```
+
+
+
+
+
+
+
+
