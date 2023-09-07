@@ -8,7 +8,7 @@ I present a nonparametric analysis of the evolution of agricultural production i
    - [How to clone the repository](#how-to-clone-the-repository)
    - [How to install the packages](#how-to-install-the-packages)
 - [Analysis and Results](#analysis-and-results)
-- [Authors](#authors)
+- [Author](#author)
 
 # Installation
 
@@ -55,6 +55,23 @@ install.packages(packages_list)
 ```
 # Analysis and Results
 The repository contains different files to perform the analysis, here we report their explanation together with a hyperlink to the knitted PDF version:
+- [01-Permutational_Tests_Spearman_corr](01-Permutational_Tests_Spearman_corr.pdf) : contains the permutational tests of the difference in means of variables between two periods and the computations for Spearman Coefficient.
+- [02-Conformal_Prediction](02-Conformal_Prediction.pdf): contains the implementation of the prediction intervals using a conformal approach.
+- [03-Permutational_Tests](03-Permutational_Tests.pdf): contains the permutation tests performed to reduce GAM and keep significant covariates only.
+- [04_GAM](04_GAM.pdf): provides the implementation for the GAM model and the reverse percentile bootstrap confindence intervals.
+- [05-Sequence_Clustering-MANOVA](05-Sequence_Clustering-MANOVA.pdf): provides the implementation of Sequence Clustering and Permutational Manova Analysis.
+- [06-Spatial_Gam](06-Spatial_Gam.pdf): empowers a GAM using spatial coordinate.
+
+The final presentation can be found here:
+[Final_Presentation](Presentation/Final_Presentation.pdf)
+
+The final report can be found here:
+[Report_Nonparametric_Stats](Report/Report_Nonparametric_Stats.pdf)
+
+# Author
+Sofia Moroni
+
+
 
 
 
